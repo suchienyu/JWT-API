@@ -40,8 +40,8 @@ services:
     container_name: chatbotfront
     #image: chiennn/chatbot:latest
     #platform: linux/amd64
-    build:
-      context: /Users/chien/ai-chatbot
+    build: 
+      context: /home/chien/vercel-chatbot
       dockerfile: dockerfile
     restart: always
     ports:

@@ -1,6 +1,8 @@
 const express = require('express');
 const { OpenAI } = require("openai");
 const { Pool } = require('pg');
+const bcrypt = require("bcrypt")
+const jwt = require('jsonwebtoken')
 //require('dotenv').config();
 const dotenv = require('dotenv');
 if (process.env.NODE_ENV === 'local') {
@@ -14,8 +16,10 @@ const tf = require('@tensorflow/tfjs-node');
 
 const app = express();
 const port = process.env.PORT || 3002;
-
+const cors = require('cors');
+app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
@@ -36,9 +40,76 @@ console.log('!!',{
     database: process.env.DB_DATABASE
 })
 console.log(process.env.NODE_ENV)
+const query = (text, params) => pool.query(text, params);
 app.get('/health',(req,res)=>{
     res.send("我還活著")
 })
+
+app.post('/api/register', async (req, res) => {
+    console.log('Register route hit');
+    console.log('Request body:', req.body);
+    
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+  
+    try {
+      // Check if user already exists
+      const userCheck = await query('SELECT * FROM users WHERE username = $1', [username]);
+      if (userCheck.rows.length > 0) {
+        return res.status(409).json({ error: 'Username already exists' });
+      }
+  
+      // Hash the password
+      const hashedPassword = await bcrypt.hash(password, 10);
+  
+      // Insert new user
+      const result = await query(
+        'INSERT INTO users (username, password) VALUES ($1, $2) RETURNING id',
+        [username, hashedPassword]
+      );
+  
+      res.status(201).json({ message: 'User registered successfully', userId: result.rows[0].id });
+    } catch (err) {
+      console.error('Registration error:', err);
+      res.status(500).json({ error: 'An error occurred during registration' });
+    }
+  });
+  
+  // Login endpoint
+  app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+  
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+  
+    try {
+      // Find user
+      const result = await query('SELECT * FROM users WHERE username = $1', [username]);
+      const user = result.rows[0];
+  
+      if (!user) {
+        return res.status(401).json({ error: 'Invalid username or password' });
+      }
+  
+      // Check password
+      const isValidPassword = await bcrypt.compare(password, user.password);
+      if (!isValidPassword) {
+        return res.status(401).json({ error: 'Invalid username or password' });
+      }
+  
+      // Generate JWT
+      const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+  
+      res.json({ message: 'Login successful', token });
+    } catch (err) {
+      console.error('Login error:', err);
+      res.status(500).json({ error: 'An error occurred during login' });
+    }
+  });
 app.post('/api/add-question', async (req, res) => {
     const { message, response } = req.body;
 
@@ -143,6 +214,16 @@ app.post('/api/chat', async (req, res) => {
     }
 });
 
+app.use((err, req, res, next) => {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
+});
+
+// 404 处理
+app.use((req, res) => {
+    console.log(`404 Not Found: ${req.method} ${req.url}`);
+    res.status(404).json({ error: "Route not found" });
+});
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
 });
