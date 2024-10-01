@@ -45,6 +45,25 @@ app.get('/health',(req,res)=>{
     res.send("我還活著")
 })
 
+function authenticateToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+  
+    if (token == null) return res.sendStatus(401);
+  
+    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+      if (err) return res.sendStatus(403);
+      req.user = user;
+      next();
+    });
+  }
+app.get('/api/protected', authenticateToken, (req, res) => {
+    res.json({
+      message: "這是受保護的資料",
+      user: req.user.username,
+      someData: "這裡可以是任何您想返回的數據"
+    });
+  });
 app.post('/api/register', async (req, res) => {
     console.log('Register route hit');
     console.log('Request body:', req.body);
